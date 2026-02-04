@@ -1,0 +1,196 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-background: oklch(0.99 0 0);
+  --color-foreground: oklch(0.13 0 0);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.13 0 0);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.13 0 0);
+  --color-primary: oklch(0.21 0 0);
+  --color-primary-foreground: oklch(0.98 0 0);
+  --color-secondary: oklch(0.96 0 0);
+  --color-secondary-foreground: oklch(0.21 0 0);
+  --color-muted: oklch(0.96 0 0);
+  --color-muted-foreground: oklch(0.45 0 0);
+  --color-accent: oklch(0.96 0 0);
+  --color-accent-foreground: oklch(0.21 0 0);
+  --color-destructive: oklch(0.58 0.22 27);
+  --color-destructive-foreground: oklch(0.98 0 0);
+  --color-border: oklch(0.91 0 0);
+  --color-input: oklch(0.91 0 0);
+  --color-ring: oklch(0.71 0 0);
+  --color-chart-1: oklch(0.65 0.2 250);
+  --color-chart-2: oklch(0.6 0.18 165);
+  --color-chart-3: oklch(0.55 0.15 45);
+  --color-chart-4: oklch(0.7 0.16 200);
+  --color-chart-5: oklch(0.5 0.2 330);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --animate-in: enter 0.2s ease-out;
+  --animate-out: exit 0.2s ease-in;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-background: oklch(0.13 0 0);
+    --color-foreground: oklch(0.98 0 0);
+    --color-card: oklch(0.13 0 0);
+    --color-card-foreground: oklch(0.98 0 0);
+    --color-popover: oklch(0.13 0 0);
+    --color-popover-foreground: oklch(0.98 0 0);
+    --color-primary: oklch(0.98 0 0);
+    --color-primary-foreground: oklch(0.21 0 0);
+    --color-secondary: oklch(0.27 0 0);
+    --color-secondary-foreground: oklch(0.98 0 0);
+    --color-muted: oklch(0.27 0 0);
+    --color-muted-foreground: oklch(0.64 0 0);
+    --color-accent: oklch(0.27 0 0);
+    --color-accent-foreground: oklch(0.98 0 0);
+    --color-destructive: oklch(0.58 0.22 27);
+    --color-destructive-foreground: oklch(0.98 0 0);
+    --color-border: oklch(0.27 0 0);
+    --color-input: oklch(0.27 0 0);
+    --color-ring: oklch(0.84 0 0);
+    --color-chart-1: oklch(0.49 0.13 250);
+    --color-chart-2: oklch(0.7 0.18 165);
+    --color-chart-3: oklch(0.77 0.15 45);
+    --color-chart-4: oklch(0.58 0.16 200);
+    --color-chart-5: oklch(0.65 0.2 330);
+  }
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes exit {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-to-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-to-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation-name: enter;
+    animation-duration: 0.2s;
+    animation-timing-function: ease-out;
+  }
+
+  .animate-out {
+    animation-name: exit;
+    animation-duration: 0.2s;
+    animation-timing-function: ease-in;
+  }
+
+  .fade-in-0 {
+    animation-name: fade-in;
+    animation-duration: 0.2s;
+  }
+
+  .fade-out-0 {
+    animation-name: fade-out;
+    animation-duration: 0.2s;
+  }
+
+  .slide-in-from-right {
+    animation-name: slide-in-from-right;
+    animation-duration: 0.3s;
+  }
+
+  .slide-out-to-right {
+    animation-name: slide-out-to-right;
+    animation-duration: 0.3s;
+  }
+
+  .slide-in-from-left {
+    animation-name: slide-in-from-left;
+    animation-duration: 0.3s;
+  }
+
+  .slide-out-to-left {
+    animation-name: slide-out-to-left;
+    animation-duration: 0.3s;
+  }
+}
