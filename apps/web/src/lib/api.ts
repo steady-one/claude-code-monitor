@@ -9,6 +9,7 @@ import type {
   RequestLogsResponse,
   RequestLogsSummary,
   UserDailyStatsResponse,
+  UserSessionsResponse,
   StatsGroupBy,
 } from '@claude-code-monitor/shared';
 
@@ -127,6 +128,23 @@ export async function fetchUserDailyStats(
 ): Promise<UserDailyStatsResponse> {
   return fetchApi<UserDailyStatsResponse>(
     `/api/users/${userId}/daily-stats`,
+    params as QueryParams,
+  );
+}
+
+interface UserSessionsParams {
+  from?: number;
+  to?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function fetchUserSessions(
+  userId: string,
+  params?: UserSessionsParams,
+): Promise<UserSessionsResponse> {
+  return fetchApi<UserSessionsResponse>(
+    `/api/users/${userId}/sessions`,
     params as QueryParams,
   );
 }

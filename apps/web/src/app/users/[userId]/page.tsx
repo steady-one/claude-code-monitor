@@ -81,7 +81,7 @@ export default function UserDetailPage({ params }: PageProps) {
         <UserModelUsage user={user} />
       </div>
 
-      <UserActivityTabs user={user} from={from} to={to} />
+      <UserActivityTabs userId={user.userId} from={from} to={to} />
     </div>
   );
 }

@@ -1,7 +1,12 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchUsers, fetchUserDetail, fetchUserDailyStats } from '@/lib/api';
+import {
+  fetchUsers,
+  fetchUserDetail,
+  fetchUserDailyStats,
+  fetchUserSessions,
+} from '@/lib/api';
 import type { StatsGroupBy } from '@claude-code-monitor/shared';
 
 interface UseUsersParams {
@@ -44,6 +49,24 @@ export function useUserDailyStats(
   return useQuery({
     queryKey: ['user-daily-stats', userId, params],
     queryFn: () => fetchUserDailyStats(userId, params),
+    enabled: !!userId,
+  });
+}
+
+interface UseUserSessionsParams {
+  from?: number;
+  to?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export function useUserSessions(
+  userId: string,
+  params: UseUserSessionsParams = {},
+) {
+  return useQuery({
+    queryKey: ['user-sessions', userId, params],
+    queryFn: () => fetchUserSessions(userId, params),
     enabled: !!userId,
   });
 }
