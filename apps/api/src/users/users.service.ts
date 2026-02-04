@@ -1,11 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import type { UsersQueryDto, UserDetailQueryDto } from './dto/users-query.dto';
+import type { UserSessionsQueryDto } from './dto/user-sessions-query.dto';
 import type { DailyStatsQueryDto } from './dto/daily-stats-query.dto';
 import type {
   UsersResponse,
   UserDetail,
   UserDailyStatsResponse,
+  UserSessionsResponse,
   DailyStatsRow,
 } from '@claude-code-monitor/shared';
 
@@ -74,7 +76,6 @@ export class UsersService {
       throw new NotFoundException(`User ${userId} not found`);
     }
 
-    const sessions = this.databaseService.getUserSessions(userId, 10);
     const modelUsage = this.databaseService.getUserModelUsage(userId, from, to);
 
     const modelUsageMap: Record<string, { cost: number; tokens: number }> = {};
@@ -100,11 +101,39 @@ export class UsersService {
         sessionCount: user.session_count,
         modelUsage: modelUsageMap,
       },
-      recentSessions: sessions.map((s) => ({
+    };
+  }
+
+  getUserSessions(
+    userId: string,
+    query: UserSessionsQueryDto,
+  ): UserSessionsResponse {
+    const { from, to } = this.getTimeRange(query);
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 10;
+
+    const { sessions, total } = this.databaseService.getUserSessionsPaginated(
+      userId,
+      from,
+      to,
+      page,
+      pageSize,
+    );
+
+    return {
+      sessions: sessions.map((s) => ({
         sessionId: s.session_id,
         startTime: s.start_time,
+        inputTokens: s.input_tokens,
+        outputTokens: s.output_tokens,
+        cacheReadTokens: s.cache_read_tokens,
+        cacheCreationTokens: s.cache_creation_tokens,
+        totalTokens: s.total_tokens,
         cost: s.cost,
       })),
+      total,
+      page,
+      pageSize,
     };
   }
 

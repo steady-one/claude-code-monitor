@@ -47,7 +47,6 @@ export class MetricsService {
       uniqueUsers: summary.uniqueUsers,
       totalCommits: summary.totalCommits,
       totalPullRequests: summary.totalPullRequests,
-      totalActiveTime: summary.totalActiveTime,
       periodStart: from,
       periodEnd: to,
     };
