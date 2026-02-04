@@ -50,6 +50,8 @@ export class AggregationService implements OnModuleInit {
           metric.user_account_uuid,
           metric.sum_value,
           metric.count_value,
+          metric.attributes_hash,
+          metric.attributes,
         );
         aggregatedCount++;
       }
@@ -101,6 +103,8 @@ export class AggregationService implements OnModuleInit {
         metric.user_account_uuid,
         metric.sum_value,
         metric.count_value,
+        metric.attributes_hash,
+        metric.attributes,
       );
       aggregatedCount++;
     }

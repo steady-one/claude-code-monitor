@@ -116,6 +116,8 @@ interface AggregateResult {
   user_account_uuid: string | null;
   sum_value: number;
   count_value: number;
+  attributes_hash: string | null;
+  attributes: string | null;
 }
 
 interface SummaryResult {
@@ -187,6 +189,17 @@ interface UserDetailRow {
 interface UserSessionRow {
   session_id: string;
   start_time: number;
+  cost: number;
+}
+
+interface DetailedUserSessionRow {
+  session_id: string;
+  start_time: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
   cost: number;
 }
 
@@ -282,6 +295,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     fromTimestamp: number,
     toTimestamp: number,
   ): readonly AggregateResult[] {
+    // 토큰 메트릭은 타입별로 분리하여 집계
     const query = this.db.prepare<
       [number, number],
       {
@@ -290,6 +304,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         user_account_uuid: string | null;
         sum_value: number;
         count_value: number;
+        attributes_hash: string | null;
+        attributes: string | null;
       }
     >(`
       SELECT
@@ -297,10 +313,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         (timestamp / 3600000) * 3600000 as hour_timestamp,
         user_account_uuid,
         SUM(metric_value) as sum_value,
-        COUNT(*) as count_value
+        COUNT(*) as count_value,
+        CASE
+          WHEN metric_name = 'claude_code.token.usage'
+          THEN COALESCE(user_account_uuid, 'global') || ':' || COALESCE(json_extract(attributes, '$.type'), 'unknown') || ':' || COALESCE(json_extract(attributes, '$.model'), 'unknown')
+          ELSE COALESCE(user_account_uuid, 'global')
+        END as attributes_hash,
+        CASE
+          WHEN metric_name = 'claude_code.token.usage'
+          THEN json_object('type', json_extract(attributes, '$.type'), 'model', json_extract(attributes, '$.model'))
+          ELSE NULL
+        END as attributes
       FROM raw_metrics
       WHERE timestamp >= ? AND timestamp < ?
-      GROUP BY metric_name, hour_timestamp, user_account_uuid
+      GROUP BY
+        metric_name,
+        hour_timestamp,
+        user_account_uuid,
+        CASE WHEN metric_name = 'claude_code.token.usage' THEN json_extract(attributes, '$.type') END,
+        CASE WHEN metric_name = 'claude_code.token.usage' THEN json_extract(attributes, '$.model') END
     `);
 
     return query.all(fromTimestamp, toTimestamp);
@@ -312,14 +343,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     userAccountUuid: string | null,
     sumValue: number,
     countValue: number,
+    attributesHash?: string | null,
+    attributes?: string | null,
   ): void {
-    const attributesHash = userAccountUuid ?? 'global';
+    const hash = attributesHash ?? userAccountUuid ?? 'global';
 
     const upsert = this.db.prepare(`
       INSERT INTO hourly_aggregates (
         metric_name, hour_timestamp, user_account_uuid,
-        sum_value, count_value, attributes_hash
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        sum_value, count_value, attributes_hash, attributes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(metric_name, hour_timestamp, user_account_uuid, attributes_hash) DO UPDATE SET
         sum_value = sum_value + excluded.sum_value,
         count_value = count_value + excluded.count_value
@@ -331,7 +364,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       userAccountUuid,
       sumValue,
       countValue,
-      attributesHash,
+      hash,
+      attributes ?? null,
     );
   }
 
@@ -349,8 +383,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     uniqueUsers: number;
     totalCommits: number;
     totalPullRequests: number;
-    totalActiveTime: number;
   } {
+    // 현재 시간의 시작 (아직 집계되지 않은 시간대)
+    const HOUR_MS = 3600000;
+    const currentHourStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+
     // hourly_aggregates에서 집계된 데이터 조회
     const getAggregatedQuery = this.db.prepare<[string, number, number], SummaryResult>(`
       SELECT COALESCE(SUM(sum_value), 0) as total
@@ -358,35 +395,33 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       WHERE metric_name = ? AND hour_timestamp >= ? AND hour_timestamp < ?
     `);
 
-    // raw_metrics에서 미집계 데이터 조회 (실시간)
+    // raw_metrics에서 미집계 데이터만 조회 (현재 시간대만)
     const getRawQuery = this.db.prepare<[string, number, number], SummaryResult>(`
       SELECT COALESCE(SUM(metric_value), 0) as total
       FROM raw_metrics
       WHERE metric_name = ? AND timestamp >= ? AND timestamp < ?
     `);
 
-    const getUniqueUsersAggregatedQuery = this.db.prepare<[number, number], { count: number }>(`
-      SELECT COUNT(DISTINCT user_account_uuid) as count
-      FROM hourly_aggregates
-      WHERE hour_timestamp >= ? AND hour_timestamp < ? AND user_account_uuid IS NOT NULL
-    `);
-
-    const getUniqueUsersRawQuery = this.db.prepare<[number, number], { count: number }>(`
-      SELECT COUNT(DISTINCT user_account_uuid) as count
-      FROM raw_metrics
-      WHERE timestamp >= ? AND timestamp < ? AND user_account_uuid IS NOT NULL
-    `);
-
     const getMetricTotal = (metricName: string): number => {
-      const aggregated = getAggregatedQuery.get(metricName, fromTimestamp, toTimestamp);
-      const raw = getRawQuery.get(metricName, fromTimestamp, toTimestamp);
+      // 집계된 시간대: hourly_aggregates에서 조회
+      const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+      const aggregated = fromTimestamp < aggregatedEnd
+        ? getAggregatedQuery.get(metricName, fromTimestamp, aggregatedEnd)
+        : null;
+
+      // 미집계 시간대(현재 시간): raw_metrics에서 조회
+      const rawStart = Math.max(fromTimestamp, currentHourStart);
+      const raw = rawStart < toTimestamp
+        ? getRawQuery.get(metricName, rawStart, toTimestamp)
+        : null;
+
       return (aggregated?.total ?? 0) + (raw?.total ?? 0);
     };
 
-    const uniqueUsersAggregated = getUniqueUsersAggregatedQuery.get(fromTimestamp, toTimestamp);
-    const uniqueUsersRaw = getUniqueUsersRawQuery.get(fromTimestamp, toTimestamp);
-
     // 중복 제거를 위한 실제 고유 사용자 수 계산
+    const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+    const rawStart = Math.max(fromTimestamp, currentHourStart);
+
     const getActualUniqueUsers = this.db.prepare<[number, number, number, number], { count: number }>(`
       SELECT COUNT(DISTINCT user_account_uuid) as count FROM (
         SELECT user_account_uuid FROM hourly_aggregates
@@ -396,16 +431,27 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         WHERE timestamp >= ? AND timestamp < ? AND user_account_uuid IS NOT NULL
       )
     `);
-    const uniqueUsersResult = getActualUniqueUsers.get(fromTimestamp, toTimestamp, fromTimestamp, toTimestamp);
+    const uniqueUsersResult = getActualUniqueUsers.get(
+      fromTimestamp, aggregatedEnd,
+      rawStart, toTimestamp
+    );
+
+    // 세션 수는 raw_metrics에서 고유 session_id 개수로 계산
+    // (hourly_aggregates에는 session_id가 없음)
+    const getActualSessionCount = this.db.prepare<[number, number], { count: number }>(`
+      SELECT COUNT(DISTINCT session_id) as count
+      FROM raw_metrics
+      WHERE timestamp >= ? AND timestamp < ? AND session_id IS NOT NULL
+    `);
+    const sessionCountResult = getActualSessionCount.get(fromTimestamp, toTimestamp);
 
     return {
       totalCost: getMetricTotal('claude_code.cost.usage'),
       totalTokens: getMetricTotal('claude_code.token.usage'),
-      totalSessions: getMetricTotal('claude_code.session.count'),
+      totalSessions: sessionCountResult?.count ?? 0,
       uniqueUsers: uniqueUsersResult?.count ?? 0,
       totalCommits: getMetricTotal('claude_code.commit.count'),
       totalPullRequests: getMetricTotal('claude_code.pull_request.count'),
-      totalActiveTime: getMetricTotal('claude_code.active_time.total'),
     };
   }
 
@@ -415,7 +461,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     toTimestamp: number,
     intervalMs: number,
   ): readonly TimeSeriesRow[] {
-    // hourly_aggregates와 raw_metrics를 UNION하여 실시간 데이터 포함
+    // 현재 시간의 시작 (아직 집계되지 않은 시간대)
+    const HOUR_MS = 3600000;
+    const currentHourStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+
+    // 집계된 시간대와 미집계 시간대를 분리하여 조회
+    const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+    const rawStart = Math.max(fromTimestamp, currentHourStart);
+
     const query = this.db.prepare<
       [number, number, string, number, number, number, number, string, number, number],
       TimeSeriesRow
@@ -438,8 +491,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     return query.all(
-      intervalMs, intervalMs, metricName, fromTimestamp, toTimestamp,
-      intervalMs, intervalMs, metricName, fromTimestamp, toTimestamp,
+      intervalMs, intervalMs, metricName, fromTimestamp, aggregatedEnd,
+      intervalMs, intervalMs, metricName, rawStart, toTimestamp,
     );
   }
 
@@ -449,7 +502,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     page: number,
     pageSize: number,
   ): { users: readonly UserStatsRow[]; total: number } {
-    // hourly_aggregates와 raw_metrics 모두에서 고유 사용자 수 계산
+    // 현재 시간의 시작 (아직 집계되지 않은 시간대)
+    const HOUR_MS = 3600000;
+    const currentHourStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+
+    // 집계된 시간대와 미집계 시간대를 분리
+    const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+    const rawStart = Math.max(fromTimestamp, currentHourStart);
+
+    // hourly_aggregates와 raw_metrics 모두에서 고유 사용자 수 계산 (중복 제거)
     const countQuery = this.db.prepare<[number, number, number, number], { count: number }>(`
       SELECT COUNT(DISTINCT user_account_uuid) as count FROM (
         SELECT user_account_uuid FROM hourly_aggregates
@@ -460,9 +521,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `);
 
-    // hourly_aggregates와 raw_metrics를 합쳐서 사용자 통계 계산
+    // hourly_aggregates(집계된 시간)와 raw_metrics(현재 시간)를 분리하여 조회
+    // session_count는 raw_metrics에서 고유 session_id 개수로 계산 (상세 페이지와 일관성)
     const usersQuery = this.db.prepare<
-      [number, number, number, number, number, number],
+      [number, number, number, number, number, number, number, number],
       UserStatsRow
     >(`
       SELECT
@@ -470,7 +532,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         u.organization_id,
         COALESCE(SUM(combined.cost), 0) as total_cost,
         COALESCE(SUM(combined.tokens), 0) as total_tokens,
-        COALESCE(SUM(combined.sessions), 0) as session_count,
+        COALESCE(sessions.session_count, 0) as session_count,
         COALESCE(u.last_seen, MAX(combined.ts)) as last_seen,
         COALESCE(u.first_seen, MIN(combined.ts)) as first_seen
       FROM (
@@ -478,8 +540,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           user_account_uuid,
           hour_timestamp as ts,
           CASE WHEN metric_name = 'claude_code.cost.usage' THEN sum_value ELSE 0 END as cost,
-          CASE WHEN metric_name = 'claude_code.token.usage' THEN sum_value ELSE 0 END as tokens,
-          CASE WHEN metric_name = 'claude_code.session.count' THEN count_value ELSE 0 END as sessions
+          CASE WHEN metric_name = 'claude_code.token.usage' THEN sum_value ELSE 0 END as tokens
         FROM hourly_aggregates
         WHERE hour_timestamp >= ? AND hour_timestamp < ? AND user_account_uuid IS NOT NULL
         UNION ALL
@@ -487,21 +548,28 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           user_account_uuid,
           timestamp as ts,
           CASE WHEN metric_name = 'claude_code.cost.usage' THEN metric_value ELSE 0 END as cost,
-          CASE WHEN metric_name = 'claude_code.token.usage' THEN metric_value ELSE 0 END as tokens,
-          CASE WHEN metric_name = 'claude_code.session.count' THEN metric_value ELSE 0 END as sessions
+          CASE WHEN metric_name = 'claude_code.token.usage' THEN metric_value ELSE 0 END as tokens
         FROM raw_metrics
         WHERE timestamp >= ? AND timestamp < ? AND user_account_uuid IS NOT NULL
       ) combined
       LEFT JOIN users u ON combined.user_account_uuid = u.account_uuid
+      LEFT JOIN (
+        SELECT user_account_uuid, COUNT(DISTINCT session_id) as session_count
+        FROM raw_metrics
+        WHERE timestamp >= ? AND timestamp < ? AND session_id IS NOT NULL
+        GROUP BY user_account_uuid
+      ) sessions ON combined.user_account_uuid = sessions.user_account_uuid
       GROUP BY combined.user_account_uuid
       ORDER BY total_cost DESC
       LIMIT ? OFFSET ?
     `);
 
-    const countResult = countQuery.get(fromTimestamp, toTimestamp, fromTimestamp, toTimestamp);
+    const countResult = countQuery.get(fromTimestamp, aggregatedEnd, rawStart, toTimestamp);
     const offset = (page - 1) * pageSize;
     const users = usersQuery.all(
       fromTimestamp,
+      aggregatedEnd,
+      rawStart,
       toTimestamp,
       fromTimestamp,
       toTimestamp,
@@ -674,48 +742,118 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       sessionId?: string;
     },
   ): readonly DetailedTokenRow[] {
-    let whereClause = 'WHERE timestamp >= ? AND timestamp < ?';
-    const whereParams: (string | number)[] = [fromTimestamp, toTimestamp];
+    const HOUR_MS = 3600000;
+    const currentHourStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+    const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+    const rawStart = Math.max(fromTimestamp, currentHourStart);
+
+    // 필터 조건 빌드
+    let aggregateWhere = '';
+    let rawWhere = '';
+    const aggregateParams: (string | number)[] = [];
+    const rawParams: (string | number)[] = [];
 
     if (filters?.userId) {
-      whereClause += ' AND user_account_uuid = ?';
-      whereParams.push(filters.userId);
-    }
-
-    if (filters?.sessionId) {
-      whereClause += ' AND session_id = ?';
-      whereParams.push(filters.sessionId);
+      aggregateWhere += ' AND user_account_uuid = ?';
+      rawWhere += ' AND user_account_uuid = ?';
+      aggregateParams.push(filters.userId);
+      rawParams.push(filters.userId);
     }
 
     if (filters?.model) {
-      whereClause += " AND json_extract(attributes, '$.model') = ?";
-      whereParams.push(filters.model);
+      aggregateWhere += " AND json_extract(attributes, '$.model') = ?";
+      rawWhere += " AND json_extract(attributes, '$.model') = ?";
+      aggregateParams.push(filters.model);
+      rawParams.push(filters.model);
     }
 
+    if (filters?.sessionId) {
+      // sessionId 필터는 raw_metrics에서만 적용 가능 (hourly_aggregates에는 session_id가 없음)
+      rawWhere += ' AND session_id = ?';
+      rawParams.push(filters.sessionId);
+    }
+
+    // sessionId 필터가 있으면 raw_metrics만 사용
+    if (filters?.sessionId) {
+      const query = this.db.prepare<(string | number)[], DetailedTokenRow>(`
+        SELECT
+          (timestamp / ?) * ? as timestamp,
+          SUM(CASE WHEN json_extract(attributes, '$.type') = 'input' THEN metric_value ELSE 0 END) as input,
+          SUM(CASE WHEN json_extract(attributes, '$.type') = 'output' THEN metric_value ELSE 0 END) as output,
+          SUM(CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN metric_value ELSE 0 END) as cache_read,
+          SUM(CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END) as cache_creation,
+          SUM(metric_value) as total,
+          json_extract(attributes, '$.model') as model
+        FROM raw_metrics
+        WHERE timestamp >= ? AND timestamp < ?
+          AND metric_name = 'claude_code.token.usage'
+          ${rawWhere}
+        GROUP BY timestamp / ?, json_extract(attributes, '$.model')
+        ORDER BY timestamp ASC
+      `);
+
+      return query.all(
+        intervalMs,
+        intervalMs,
+        fromTimestamp,
+        toTimestamp,
+        ...rawParams,
+        intervalMs,
+      );
+    }
+
+    // hourly_aggregates + raw_metrics 조회
     const query = this.db.prepare<(string | number)[], DetailedTokenRow>(`
       SELECT
-        (timestamp / ?) * ? as timestamp,
-        SUM(CASE WHEN json_extract(attributes, '$.type') = 'input' THEN metric_value ELSE 0 END) as input,
-        SUM(CASE WHEN json_extract(attributes, '$.type') = 'output' THEN metric_value ELSE 0 END) as output,
-        SUM(CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN metric_value ELSE 0 END) as cache_read,
-        SUM(CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END) as cache_creation,
-        SUM(metric_value) as total,
-        json_extract(attributes, '$.model') as model
-      FROM raw_metrics
-      ${whereClause}
-      AND metric_name = 'claude_code.token.usage'
-      GROUP BY timestamp / ?, json_extract(attributes, '$.model')
+        (ts / ?) * ? as timestamp,
+        SUM(input) as input,
+        SUM(output) as output,
+        SUM(cache_read) as cache_read,
+        SUM(cache_creation) as cache_creation,
+        SUM(input) + SUM(output) + SUM(cache_read) + SUM(cache_creation) as total,
+        model
+      FROM (
+        -- hourly_aggregates (집계된 과거 데이터)
+        SELECT
+          hour_timestamp as ts,
+          CASE WHEN json_extract(attributes, '$.type') = 'input' THEN sum_value ELSE 0 END as input,
+          CASE WHEN json_extract(attributes, '$.type') = 'output' THEN sum_value ELSE 0 END as output,
+          CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN sum_value ELSE 0 END as cache_read,
+          CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN sum_value ELSE 0 END as cache_creation,
+          json_extract(attributes, '$.model') as model
+        FROM hourly_aggregates
+        WHERE metric_name = 'claude_code.token.usage'
+          AND hour_timestamp >= ? AND hour_timestamp < ?
+          ${aggregateWhere}
+        UNION ALL
+        -- raw_metrics (현재 시간대 미집계 데이터)
+        SELECT
+          timestamp as ts,
+          CASE WHEN json_extract(attributes, '$.type') = 'input' THEN metric_value ELSE 0 END as input,
+          CASE WHEN json_extract(attributes, '$.type') = 'output' THEN metric_value ELSE 0 END as output,
+          CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN metric_value ELSE 0 END as cache_read,
+          CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END as cache_creation,
+          json_extract(attributes, '$.model') as model
+        FROM raw_metrics
+        WHERE metric_name = 'claude_code.token.usage'
+          AND timestamp >= ? AND timestamp < ?
+          ${rawWhere}
+      )
+      GROUP BY ts / ?, model
       ORDER BY timestamp ASC
     `);
 
-    const params: (string | number)[] = [
+    return query.all(
       intervalMs,
       intervalMs,
-      ...whereParams,
+      fromTimestamp,
+      aggregatedEnd,
+      ...aggregateParams,
+      rawStart,
+      toTimestamp,
+      ...rawParams,
       intervalMs,
-    ];
-
-    return query.all(...params);
+    );
   }
 
   getModelStats(
@@ -743,10 +881,29 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     fromTimestamp: number,
     toTimestamp: number,
   ): UserDetailRow | null {
-    // hourly_aggregates와 raw_metrics를 통합하여 조회 (getUserStats와 동일한 데이터 소스)
+    // 세션 수는 고유한 session_id 개수로 계산 (raw_metrics 기준)
+    const sessionCountQuery = this.db.prepare<[string, number, number], { count: number }>(`
+      SELECT COUNT(DISTINCT session_id) as count
+      FROM raw_metrics
+      WHERE user_account_uuid = ?
+        AND timestamp >= ? AND timestamp < ?
+        AND session_id IS NOT NULL
+    `);
+    const sessionCountResult = sessionCountQuery.get(userId, fromTimestamp, toTimestamp);
+    const actualSessionCount = sessionCountResult?.count ?? 0;
+
+    // 현재 시간의 시작 (아직 집계되지 않은 시간대)
+    const HOUR_MS = 3600000;
+    const currentHourStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+
+    // 집계된 시간대와 미집계 시간대를 분리
+    const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+    const rawStart = Math.max(fromTimestamp, currentHourStart);
+
+    // hourly_aggregates(집계된 시간)와 raw_metrics(현재 시간)를 분리하여 조회
     const query = this.db.prepare<
       [string, number, number, string, number, number, string],
-      UserDetailRow
+      Omit<UserDetailRow, 'session_count'>
     >(`
       SELECT
         u.account_uuid,
@@ -758,11 +915,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         COALESCE(SUM(combined.input_tokens), 0) as input_tokens,
         COALESCE(SUM(combined.output_tokens), 0) as output_tokens,
         COALESCE(SUM(combined.cache_read_tokens), 0) as cache_read_tokens,
-        COALESCE(SUM(combined.cache_creation_tokens), 0) as cache_creation_tokens,
-        COALESCE(SUM(combined.session_count), 0) as session_count
+        COALESCE(SUM(combined.cache_creation_tokens), 0) as cache_creation_tokens
       FROM users u
       LEFT JOIN (
-        -- hourly_aggregates에서 집계된 데이터
+        -- hourly_aggregates에서 집계된 데이터 (집계 완료된 시간대만)
         SELECT
           user_account_uuid,
           CASE WHEN metric_name = 'claude_code.cost.usage' THEN sum_value ELSE 0 END as cost,
@@ -770,13 +926,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'input' THEN sum_value ELSE 0 END as input_tokens,
           CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'output' THEN sum_value ELSE 0 END as output_tokens,
           CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheRead' THEN sum_value ELSE 0 END as cache_read_tokens,
-          CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheCreation' THEN sum_value ELSE 0 END as cache_creation_tokens,
-          CASE WHEN metric_name = 'claude_code.session.count' THEN count_value ELSE 0 END as session_count
+          CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheCreation' THEN sum_value ELSE 0 END as cache_creation_tokens
         FROM hourly_aggregates
         WHERE user_account_uuid = ?
           AND hour_timestamp >= ? AND hour_timestamp < ?
         UNION ALL
-        -- raw_metrics에서 원시 데이터 (hourly_aggregates와 동일 시간대 데이터 포함)
+        -- raw_metrics에서 원시 데이터 (현재 시간대만, 미집계 데이터)
         SELECT
           user_account_uuid,
           CASE WHEN metric_name = 'claude_code.cost.usage' THEN metric_value ELSE 0 END as cost,
@@ -784,8 +939,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'input' THEN metric_value ELSE 0 END as input_tokens,
           CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'output' THEN metric_value ELSE 0 END as output_tokens,
           CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheRead' THEN metric_value ELSE 0 END as cache_read_tokens,
-          CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END as cache_creation_tokens,
-          0 as session_count
+          CASE WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END as cache_creation_tokens
         FROM raw_metrics
         WHERE user_account_uuid = ?
           AND timestamp >= ? AND timestamp < ?
@@ -794,7 +948,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       GROUP BY u.account_uuid
     `);
 
-    return query.get(userId, fromTimestamp, toTimestamp, userId, fromTimestamp, toTimestamp, userId) ?? null;
+    const result = query.get(userId, fromTimestamp, aggregatedEnd, userId, rawStart, toTimestamp, userId);
+    if (!result) return null;
+
+    return {
+      ...result,
+      session_count: actualSessionCount,
+    };
   }
 
   getUserSessions(
@@ -814,6 +974,65 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     return query.all(userId, limit);
+  }
+
+  getUserSessionsPaginated(
+    userId: string,
+    fromTimestamp: number,
+    toTimestamp: number,
+    page: number,
+    pageSize: number,
+  ): { sessions: readonly DetailedUserSessionRow[]; total: number } {
+    const countQuery = this.db.prepare<[string, number, number], { count: number }>(`
+      SELECT COUNT(DISTINCT session_id) as count
+      FROM raw_metrics
+      WHERE user_account_uuid = ?
+        AND session_id IS NOT NULL
+        AND timestamp >= ? AND timestamp < ?
+    `);
+
+    const sessionsQuery = this.db.prepare<
+      [string, number, number, number, number],
+      DetailedUserSessionRow
+    >(`
+      SELECT
+        session_id,
+        MIN(timestamp) as start_time,
+        SUM(CASE
+          WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'input'
+          THEN metric_value ELSE 0 END) as input_tokens,
+        SUM(CASE
+          WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'output'
+          THEN metric_value ELSE 0 END) as output_tokens,
+        SUM(CASE
+          WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheRead'
+          THEN metric_value ELSE 0 END) as cache_read_tokens,
+        SUM(CASE
+          WHEN metric_name = 'claude_code.token.usage' AND json_extract(attributes, '$.type') = 'cacheCreation'
+          THEN metric_value ELSE 0 END) as cache_creation_tokens,
+        SUM(CASE
+          WHEN metric_name = 'claude_code.token.usage'
+          THEN metric_value ELSE 0 END) as total_tokens,
+        SUM(CASE
+          WHEN metric_name = 'claude_code.cost.usage'
+          THEN metric_value ELSE 0 END) as cost
+      FROM raw_metrics
+      WHERE user_account_uuid = ?
+        AND session_id IS NOT NULL
+        AND timestamp >= ? AND timestamp < ?
+      GROUP BY session_id
+      ORDER BY start_time DESC
+      LIMIT ? OFFSET ?
+    `);
+
+    const countResult = countQuery.get(userId, fromTimestamp, toTimestamp);
+    const offset = (page - 1) * pageSize;
+    const sessions = sessionsQuery.all(userId, fromTimestamp, toTimestamp, pageSize, offset);
+
+    return {
+      sessions,
+      total: countResult?.count ?? 0,
+    };
   }
 
   getUserModelUsage(
