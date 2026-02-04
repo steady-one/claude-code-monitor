@@ -6,7 +6,7 @@ import {
   DollarSign,
   Hash,
   Users,
-  Clock,
+  TrendingUp,
 } from 'lucide-react';
 
 interface SummaryCardsProps {
@@ -32,16 +32,11 @@ function formatNumber(value: number): string {
   return value.toFixed(0);
 }
 
-function formatDuration(ms: number): string {
-  const hours = Math.floor(ms / (1000 * 60 * 60));
-  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m`;
-}
-
 export function SummaryCards({ summary }: SummaryCardsProps) {
+  const avgSessionCost = summary.totalSessions > 0
+    ? summary.totalCost / summary.totalSessions
+    : 0;
+
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card>
@@ -88,14 +83,14 @@ export function SummaryCards({ summary }: SummaryCardsProps) {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">활성 시간</CardTitle>
-          <Clock className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium">평균 세션 비용</CardTitle>
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">
-            {formatDuration(summary.totalActiveTime)}
+            {formatCurrency(avgSessionCost)}
           </div>
-          <p className="text-xs text-muted-foreground">총 작업 시간</p>
+          <p className="text-xs text-muted-foreground">세션당 평균</p>
         </CardContent>
       </Card>
     </div>
