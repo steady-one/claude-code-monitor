@@ -8,7 +8,6 @@ export const METRIC_NAMES = {
   LINES_OF_CODE: 'claude_code.lines_of_code.count',
   COMMIT_COUNT: 'claude_code.commit.count',
   PULL_REQUEST_COUNT: 'claude_code.pull_request.count',
-  ACTIVE_TIME: 'claude_code.active_time.total',
 } as const;
 
 export type MetricName = (typeof METRIC_NAMES)[keyof typeof METRIC_NAMES];

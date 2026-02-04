@@ -21,7 +21,6 @@ export interface MetricsSummary {
   readonly uniqueUsers: number;
   readonly totalCommits: number;
   readonly totalPullRequests: number;
-  readonly totalActiveTime: number;
   readonly periodStart: number;
   readonly periodEnd: number;
 }
@@ -188,9 +187,28 @@ export interface UserDetail {
     readonly sessionCount: number;
     readonly modelUsage: Record<string, { cost: number; tokens: number }>;
   };
-  readonly recentSessions: readonly {
-    readonly sessionId: string;
-    readonly startTime: number;
-    readonly cost: number;
-  }[];
+}
+
+/**
+ * 사용자 세션 정보
+ */
+export interface UserSession {
+  readonly sessionId: string;
+  readonly startTime: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheCreationTokens: number;
+  readonly totalTokens: number;
+  readonly cost: number;
+}
+
+/**
+ * 사용자 세션 목록 응답
+ */
+export interface UserSessionsResponse {
+  readonly sessions: readonly UserSession[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
 }
