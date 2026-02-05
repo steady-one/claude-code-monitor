@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useState, useMemo } from 'react';
-import { useUserDetail } from '@/hooks/use-users';
+import { useUserDetail, useUserDailyStats } from '@/hooks/use-users';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   TimeRangePresetButtons,
@@ -10,7 +10,8 @@ import {
 } from '@/components/ui/time-range-preset';
 import { UserDetailHeader } from '@/components/users/user-detail-header';
 import { UserStatsCards } from '@/components/users/user-stats-cards';
-import { UserTokenBreakdown } from '@/components/users/user-token-breakdown';
+import { UserCostTrend } from '@/components/users/user-cost-trend';
+import { UserSessionInsights } from '@/components/users/user-session-insights';
 import { UserModelUsage } from '@/components/users/user-model-usage';
 import { UserActivityTabs } from '@/components/users/user-activity-tabs';
 
@@ -27,21 +28,36 @@ export default function UserDetailPage({ params }: PageProps) {
     [timeRange],
   );
 
+  const periodDays = useMemo(
+    () => Math.ceil((to - from) / (1000 * 60 * 60 * 24)),
+    [from, to],
+  );
+
   const { data: user, isLoading, isError, error } = useUserDetail(userId, {
     from,
     to,
+  });
+
+  const { data: dailyStatsData } = useUserDailyStats(userId, {
+    from,
+    to,
+    groupBy: 'day',
   });
 
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
         <Skeleton className="h-16 w-96" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
         <Skeleton className="h-80" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-80" />
+          <Skeleton className="h-80" />
+        </div>
         <Skeleton className="h-80" />
       </div>
     );
@@ -74,10 +90,16 @@ export default function UserDetailPage({ params }: PageProps) {
         <TimeRangePresetButtons value={timeRange} onChange={setTimeRange} />
       </div>
 
-      <UserStatsCards user={user} />
+      <UserStatsCards
+        user={user}
+        dailyStats={dailyStatsData?.stats}
+        periodDays={periodDays}
+      />
+
+      <UserCostTrend userId={user.userId} from={from} to={to} />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <UserTokenBreakdown user={user} />
+        <UserSessionInsights userId={user.userId} from={from} to={to} />
         <UserModelUsage user={user} />
       </div>
 

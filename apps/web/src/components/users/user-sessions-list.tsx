@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -15,6 +16,7 @@ import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency, formatDate, formatNumber, truncateUuid } from '@/lib/format';
 import { useUserSessions } from '@/hooks/use-users';
+import type { UserSession } from '@claude-code-monitor/shared';
 
 interface UserSessionsListProps {
   readonly userId: string;
@@ -23,6 +25,13 @@ interface UserSessionsListProps {
 }
 
 const PAGE_SIZE = 10;
+
+function calculateAnomalyThreshold(sessions: readonly UserSession[]): number {
+  if (sessions.length === 0) return Infinity;
+  const totalCost = sessions.reduce((sum, s) => sum + s.cost, 0);
+  const avgCost = totalCost / sessions.length;
+  return avgCost * 3;
+}
 
 export function UserSessionsList({ userId, from, to }: UserSessionsListProps) {
   const [dateRange, setDateRange] = useState({ from, to });
@@ -34,6 +43,18 @@ export function UserSessionsList({ userId, from, to }: UserSessionsListProps) {
     page,
     pageSize: PAGE_SIZE,
   });
+
+  const { data: allSessionsData } = useUserSessions(userId, {
+    from: dateRange.from,
+    to: dateRange.to,
+    page: 1,
+    pageSize: 1000,
+  });
+
+  const anomalyThreshold = useMemo(
+    () => calculateAnomalyThreshold(allSessionsData?.sessions ?? []),
+    [allSessionsData?.sessions],
+  );
 
   const handleDateRangeChange = useCallback(
     (range: { from: number; to: number }) => {
@@ -110,32 +131,55 @@ export function UserSessionsList({ userId, from, to }: UserSessionsListProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sessions.map((session) => (
-                  <TableRow key={session.sessionId}>
-                    <TableCell className="font-mono text-sm">
-                      {truncateUuid(session.sessionId)}
-                    </TableCell>
-                    <TableCell>{formatDate(session.startTime)}</TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(session.inputTokens)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(session.outputTokens)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(session.cacheReadTokens)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(session.cacheCreationTokens)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatNumber(session.totalTokens)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(session.cost)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {sessions.map((session) => {
+                  const isAnomaly = session.cost >= anomalyThreshold;
+                  return (
+                    <TableRow
+                      key={session.sessionId}
+                      className={
+                        isAnomaly
+                          ? 'bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50'
+                          : ''
+                      }
+                    >
+                      <TableCell className="font-mono text-sm">
+                        <div className="flex items-center gap-2">
+                          {isAnomaly && (
+                            <span title="이상 세션: 평균의 3배 이상">
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            </span>
+                          )}
+                          {truncateUuid(session.sessionId)}
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatDate(session.startTime)}</TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(session.inputTokens)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(session.outputTokens)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(session.cacheReadTokens)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(session.cacheCreationTokens)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(session.totalTokens)}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right ${
+                          isAnomaly
+                            ? 'font-semibold text-amber-700 dark:text-amber-400'
+                            : ''
+                        }`}
+                      >
+                        {formatCurrency(session.cost)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
 
