@@ -212,3 +212,36 @@ export interface UserSessionsResponse {
   readonly page: number;
   readonly pageSize: number;
 }
+
+/**
+ * 사용자별 시계열 데이터 포인트
+ */
+export interface UserTimeSeriesDataPoint {
+  readonly timestamp: number;
+  readonly value: number;
+}
+
+/**
+ * 사용자별 시계열 데이터
+ */
+export interface UserTimeSeries {
+  readonly userId: string;
+  readonly userName?: string;
+  readonly data: readonly UserTimeSeriesDataPoint[];
+}
+
+/**
+ * 사용자별 비용 시계열 응답
+ */
+export interface UserCostTimeSeriesResponse {
+  readonly data: readonly UserTimeSeries[];
+  readonly interval: 'hour' | 'day';
+}
+
+/**
+ * 사용자별 토큰 시계열 응답
+ */
+export interface UserTokenTimeSeriesResponse {
+  readonly data: readonly UserTimeSeries[];
+  readonly interval: 'hour' | 'day';
+}
