@@ -23,6 +23,12 @@ export interface MetricsSummary {
   readonly totalPullRequests: number;
   readonly periodStart: number;
   readonly periodEnd: number;
+  readonly previousPeriod?: {
+    readonly totalCost: number;
+    readonly totalTokens: number;
+    readonly totalSessions: number;
+    readonly uniqueUsers: number;
+  };
 }
 
 /**

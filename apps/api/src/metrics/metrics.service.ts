@@ -44,7 +44,7 @@ export class MetricsService {
 
     const summary = this.databaseService.getSummary(from, to);
 
-    return {
+    const result: MetricsSummary = {
       totalCost: summary.totalCost,
       totalTokens: summary.totalTokens,
       totalSessions: summary.totalSessions,
@@ -54,6 +54,27 @@ export class MetricsService {
       periodStart: from,
       periodEnd: to,
     };
+
+    // 이전 기간 비교 데이터 조회
+    if (query.comparePreviousPeriod) {
+      const duration = to - from;
+      const prevFrom = from - duration;
+      const prevTo = from;
+
+      const prevSummary = this.databaseService.getSummary(prevFrom, prevTo);
+
+      return {
+        ...result,
+        previousPeriod: {
+          totalCost: prevSummary.totalCost,
+          totalTokens: prevSummary.totalTokens,
+          totalSessions: prevSummary.totalSessions,
+          uniqueUsers: prevSummary.uniqueUsers,
+        },
+      };
+    }
+
+    return result;
   }
 
   getCostTimeSeries(query: UserTimeRangeDto): CostTimeSeriesResponse {

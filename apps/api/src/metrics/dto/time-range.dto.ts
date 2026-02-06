@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, Min, IsIn, IsString } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsIn, IsString, IsBoolean } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class TimeRangeDto {
@@ -17,6 +17,11 @@ export class TimeRangeDto {
   @IsOptional()
   @IsIn(['hour', 'day'])
   interval?: 'hour' | 'day';
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  comparePreviousPeriod?: boolean;
 }
 
 export class PaginatedTimeRangeDto extends TimeRangeDto {
@@ -30,6 +35,7 @@ export class PaginatedTimeRangeDto extends TimeRangeDto {
   @Transform(({ value }) => (value ? parseInt(value, 10) : 20))
   @IsInt()
   @Min(1)
+  @Max(100)
   pageSize?: number;
 }
 
