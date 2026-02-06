@@ -77,7 +77,7 @@ export function UserSessionInsights({
     from,
     to,
     page: 1,
-    pageSize: 1000,
+    pageSize: 100,
   });
 
   if (isLoading) {

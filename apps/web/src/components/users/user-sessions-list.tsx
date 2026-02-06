@@ -48,7 +48,7 @@ export function UserSessionsList({ userId, from, to }: UserSessionsListProps) {
     from: dateRange.from,
     to: dateRange.to,
     page: 1,
-    pageSize: 1000,
+    pageSize: 100,
   });
 
   const anomalyThreshold = useMemo(

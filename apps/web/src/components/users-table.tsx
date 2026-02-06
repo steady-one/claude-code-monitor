@@ -1,7 +1,8 @@
 'use client';
 
+import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Download } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -10,14 +11,29 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/pagination';
-import type { UsersResponse } from '@claude-code-monitor/shared';
+import type { UsersResponse, UserStats } from '@claude-code-monitor/shared';
 import {
   formatCurrency,
   formatNumber,
   formatDate,
   truncateUuid,
 } from '@/lib/format';
+import { generateCsv, downloadCsv } from '@/lib/csv-export';
+
+const CSV_COLUMNS: readonly {
+  readonly key: keyof UserStats;
+  readonly header: string;
+}[] = [
+  { key: 'accountUuid', header: '사용자 ID' },
+  { key: 'organizationId', header: '조직' },
+  { key: 'totalCost', header: '비용 (USD)' },
+  { key: 'totalTokens', header: '토큰' },
+  { key: 'sessionCount', header: '세션' },
+  { key: 'lastSeen', header: '마지막 활동' },
+  { key: 'firstSeen', header: '최초 활동' },
+] as const;
 
 interface UsersTableProps {
   readonly data: UsersResponse;
@@ -31,6 +47,22 @@ export function UsersTable({
   showPagination = false,
 }: UsersTableProps) {
   const router = useRouter();
+
+  const handleExportCsv = useCallback(() => {
+    // 타임스탬프를 날짜 문자열로 변환한 데이터 생성
+    const exportData = data.users.map((user) => ({
+      ...user,
+      lastSeen: new Date(user.lastSeen).toISOString(),
+      firstSeen: new Date(user.firstSeen).toISOString(),
+    }));
+
+    const csv = generateCsv(
+      exportData as unknown as readonly Record<string, unknown>[],
+      CSV_COLUMNS as unknown as readonly { key: string; header: string }[],
+    );
+    const timestamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(csv, `users-${timestamp}.csv`);
+  }, [data.users]);
 
   if (data.users.length === 0) {
     return (
@@ -48,6 +80,18 @@ export function UsersTable({
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportCsv}
+          className="gap-1.5"
+        >
+          <Download className="h-3.5 w-3.5" />
+          CSV 내보내기
+        </Button>
+      </div>
+
       <Table>
         <TableHeader>
           <TableRow>
