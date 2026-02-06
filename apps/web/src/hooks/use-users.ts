@@ -6,6 +6,8 @@ import {
   fetchUserDetail,
   fetchUserDailyStats,
   fetchUserSessions,
+  fetchCostTimeSeries,
+  fetchDetailedTokens,
 } from '@/lib/api';
 import type { StatsGroupBy } from '@claude-code-monitor/shared';
 
@@ -67,6 +69,34 @@ export function useUserSessions(
   return useQuery({
     queryKey: ['user-sessions', userId, params],
     queryFn: () => fetchUserSessions(userId, params),
+    enabled: !!userId,
+  });
+}
+
+interface UseUserTimeSeriesParams {
+  from?: number;
+  to?: number;
+  interval?: 'hour' | 'day';
+}
+
+export function useUserCostTimeSeries(
+  userId: string,
+  params: UseUserTimeSeriesParams = {},
+) {
+  return useQuery({
+    queryKey: ['user-cost-timeseries', userId, params],
+    queryFn: () => fetchCostTimeSeries({ ...params, userId }),
+    enabled: !!userId,
+  });
+}
+
+export function useUserDetailedTokens(
+  userId: string,
+  params: UseUserTimeSeriesParams = {},
+) {
+  return useQuery({
+    queryKey: ['user-detailed-tokens', userId, params],
+    queryFn: () => fetchDetailedTokens({ ...params, userId }),
     enabled: !!userId,
   });
 }

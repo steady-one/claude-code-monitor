@@ -1,8 +1,14 @@
 'use client';
 
 import { use, useState, useMemo } from 'react';
-import { useUserDetail, useUserDailyStats } from '@/hooks/use-users';
+import {
+  useUserDetail,
+  useUserDailyStats,
+  useUserCostTimeSeries,
+  useUserDetailedTokens,
+} from '@/hooks/use-users';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   TimeRangePresetButtons,
   getTimeRangeFromPreset,
@@ -10,10 +16,11 @@ import {
 } from '@/components/ui/time-range-preset';
 import { UserDetailHeader } from '@/components/users/user-detail-header';
 import { UserStatsCards } from '@/components/users/user-stats-cards';
-import { UserCostTrend } from '@/components/users/user-cost-trend';
 import { UserSessionInsights } from '@/components/users/user-session-insights';
 import { UserModelUsage } from '@/components/users/user-model-usage';
 import { UserActivityTabs } from '@/components/users/user-activity-tabs';
+import { CostChart } from '@/components/charts/cost-chart';
+import { TokenStackedChart } from '@/components/charts/token-stacked-chart';
 
 interface PageProps {
   params: Promise<{ userId: string }>;
@@ -21,12 +28,14 @@ interface PageProps {
 
 export default function UserDetailPage({ params }: PageProps) {
   const { userId } = use(params);
-  const [timeRange, setTimeRange] = useState<TimeRangePreset>('30d');
+  const [timeRange, setTimeRange] = useState<TimeRangePreset>('today');
 
   const { from, to } = useMemo(
     () => getTimeRangeFromPreset(timeRange),
     [timeRange],
   );
+
+  const interval = timeRange === 'today' ? 'hour' : 'day';
 
   const periodDays = useMemo(
     () => Math.ceil((to - from) / (1000 * 60 * 60 * 24)),
@@ -44,6 +53,16 @@ export default function UserDetailPage({ params }: PageProps) {
     groupBy: 'day',
   });
 
+  const { data: costData, isLoading: isCostLoading } = useUserCostTimeSeries(
+    userId,
+    { from, to, interval },
+  );
+
+  const { data: tokenData, isLoading: isTokenLoading } = useUserDetailedTokens(
+    userId,
+    { from, to, interval },
+  );
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -53,7 +72,10 @@ export default function UserDetailPage({ params }: PageProps) {
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
-        <Skeleton className="h-80" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-80" />
+          <Skeleton className="h-80" />
+        </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <Skeleton className="h-80" />
           <Skeleton className="h-80" />
@@ -96,7 +118,41 @@ export default function UserDetailPage({ params }: PageProps) {
         periodDays={periodDays}
       />
 
-      <UserCostTrend userId={user.userId} from={from} to={to} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>비용 추이</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isCostLoading ? (
+              <Skeleton className="h-[300px] w-full" />
+            ) : costData ? (
+              <CostChart data={costData} />
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                비용 데이터가 없습니다
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>토큰 사용량</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isTokenLoading ? (
+              <Skeleton className="h-[300px] w-full" />
+            ) : tokenData && tokenData.data.length > 0 ? (
+              <TokenStackedChart data={tokenData.data} interval={interval} />
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                토큰 데이터가 없습니다
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <UserSessionInsights userId={user.userId} from={from} to={to} />
