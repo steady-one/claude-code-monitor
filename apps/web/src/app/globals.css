@@ -145,6 +145,7 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-inter), var(--font-noto-sans-kr), ui-sans-serif, system-ui, sans-serif;
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
