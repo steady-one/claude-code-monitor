@@ -46,3 +46,9 @@ export class DetailedTokensQueryDto extends TimeRangeDto {
   @IsString()
   sessionId?: string;
 }
+
+export class UserTimeRangeDto extends TimeRangeDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+}

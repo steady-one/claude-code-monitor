@@ -4,6 +4,7 @@ import {
   TimeRangeDto,
   PaginatedTimeRangeDto,
   DetailedTokensQueryDto,
+  UserTimeRangeDto,
 } from './dto/time-range.dto';
 import type {
   MetricsSummary,
@@ -12,6 +13,8 @@ import type {
   UsersResponse,
   DetailedTokensResponse,
   ModelsStatsResponse,
+  UserCostTimeSeriesResponse,
+  UserTokenTimeSeriesResponse,
 } from '@claude-code-monitor/shared';
 
 @Controller('api/metrics')
@@ -24,12 +27,12 @@ export class MetricsController {
   }
 
   @Get('cost')
-  getCostTimeSeries(@Query() query: TimeRangeDto): CostTimeSeriesResponse {
+  getCostTimeSeries(@Query() query: UserTimeRangeDto): CostTimeSeriesResponse {
     return this.metricsService.getCostTimeSeries(query);
   }
 
   @Get('tokens')
-  getTokenTimeSeries(@Query() query: TimeRangeDto): TokenTimeSeriesResponse {
+  getTokenTimeSeries(@Query() query: UserTimeRangeDto): TokenTimeSeriesResponse {
     return this.metricsService.getTokenTimeSeries(query);
   }
 
@@ -48,5 +51,19 @@ export class MetricsController {
   @Get('users')
   getUsers(@Query() query: PaginatedTimeRangeDto): UsersResponse {
     return this.metricsService.getUsers(query);
+  }
+
+  @Get('cost/by-user')
+  getUsersCostTimeSeries(
+    @Query() query: TimeRangeDto,
+  ): UserCostTimeSeriesResponse {
+    return this.metricsService.getUsersCostTimeSeries(query);
+  }
+
+  @Get('tokens/by-user')
+  getUsersTokenTimeSeries(
+    @Query() query: TimeRangeDto,
+  ): UserTokenTimeSeriesResponse {
+    return this.metricsService.getUsersTokenTimeSeries(query);
   }
 }

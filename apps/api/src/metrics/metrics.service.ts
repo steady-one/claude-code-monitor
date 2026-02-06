@@ -4,6 +4,7 @@ import type {
   TimeRangeDto,
   PaginatedTimeRangeDto,
   DetailedTokensQueryDto,
+  UserTimeRangeDto,
 } from './dto/time-range.dto';
 import type {
   MetricsSummary,
@@ -12,6 +13,9 @@ import type {
   UsersResponse,
   DetailedTokensResponse,
   ModelsStatsResponse,
+  UserCostTimeSeriesResponse,
+  UserTokenTimeSeriesResponse,
+  UserTimeSeries,
 } from '@claude-code-monitor/shared';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -52,7 +56,7 @@ export class MetricsService {
     };
   }
 
-  getCostTimeSeries(query: TimeRangeDto): CostTimeSeriesResponse {
+  getCostTimeSeries(query: UserTimeRangeDto): CostTimeSeriesResponse {
     const { from, to, intervalMs } = this.getTimeRange(query);
 
     const data = this.databaseService.getTimeSeries(
@@ -60,6 +64,7 @@ export class MetricsService {
       from,
       to,
       intervalMs,
+      query.userId,
     );
 
     const total = data.reduce((sum, point) => sum + point.value, 0);
@@ -71,7 +76,7 @@ export class MetricsService {
     };
   }
 
-  getTokenTimeSeries(query: TimeRangeDto): TokenTimeSeriesResponse {
+  getTokenTimeSeries(query: UserTimeRangeDto): TokenTimeSeriesResponse {
     const { from, to, intervalMs } = this.getTimeRange(query);
 
     const data = this.databaseService.getTimeSeries(
@@ -79,6 +84,7 @@ export class MetricsService {
       from,
       to,
       intervalMs,
+      query.userId,
     );
 
     const total = data.reduce((sum, point) => sum + point.value, 0);
@@ -192,6 +198,72 @@ export class MetricsService {
             ? Math.round(row.total_tokens / row.request_count)
             : 0,
       })),
+    };
+  }
+
+  getUsersCostTimeSeries(query: TimeRangeDto): UserCostTimeSeriesResponse {
+    const { from, to, intervalMs } = this.getTimeRange(query);
+
+    const rawData = this.databaseService.getUsersTimeSeries(
+      'claude_code.cost.usage',
+      from,
+      to,
+      intervalMs,
+    );
+
+    const userDataMap = new Map<string, UserTimeSeries>();
+
+    for (const row of rawData) {
+      const existing = userDataMap.get(row.user_account_uuid);
+      if (existing) {
+        (existing.data as { timestamp: number; value: number }[]).push({
+          timestamp: row.timestamp,
+          value: row.value,
+        });
+      } else {
+        userDataMap.set(row.user_account_uuid, {
+          userId: row.user_account_uuid,
+          data: [{ timestamp: row.timestamp, value: row.value }],
+        });
+      }
+    }
+
+    return {
+      data: Array.from(userDataMap.values()),
+      interval: query.interval === 'day' ? 'day' : 'hour',
+    };
+  }
+
+  getUsersTokenTimeSeries(query: TimeRangeDto): UserTokenTimeSeriesResponse {
+    const { from, to, intervalMs } = this.getTimeRange(query);
+
+    const rawData = this.databaseService.getUsersTimeSeries(
+      'claude_code.token.usage',
+      from,
+      to,
+      intervalMs,
+    );
+
+    const userDataMap = new Map<string, UserTimeSeries>();
+
+    for (const row of rawData) {
+      const existing = userDataMap.get(row.user_account_uuid);
+      if (existing) {
+        (existing.data as { timestamp: number; value: number }[]).push({
+          timestamp: row.timestamp,
+          value: row.value,
+        });
+      } else {
+        userDataMap.set(row.user_account_uuid, {
+          userId: row.user_account_uuid,
+          data: [{ timestamp: row.timestamp, value: row.value }],
+        });
+      }
+    }
+
+    return {
+      data: Array.from(userDataMap.values()),
+      interval: query.interval === 'day' ? 'day' : 'hour',
     };
   }
 }

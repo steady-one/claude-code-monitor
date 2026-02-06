@@ -214,6 +214,12 @@ interface DailyStatsRow {
   total_cost: number;
 }
 
+interface UserTimeSeriesRow {
+  user_account_uuid: string;
+  timestamp: number;
+  value: number;
+}
+
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private db!: Database.Database;
@@ -460,6 +466,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     fromTimestamp: number,
     toTimestamp: number,
     intervalMs: number,
+    userId?: string,
   ): readonly TimeSeriesRow[] {
     // 현재 시간의 시작 (아직 집계되지 않은 시간대)
     const HOUR_MS = 3600000;
@@ -469,19 +476,50 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
     const rawStart = Math.max(fromTimestamp, currentHourStart);
 
+    // SQLite에서 정수 나눗셈을 보장하기 위해 (ts - ts % interval) 패턴 사용
+    if (userId) {
+      const query = this.db.prepare<
+        [number, string, number, number, string, number, string, number, number, string],
+        TimeSeriesRow
+      >(`
+        SELECT timestamp, SUM(value) as value FROM (
+          SELECT
+            hour_timestamp - (hour_timestamp % ?) as timestamp,
+            sum_value as value
+          FROM hourly_aggregates
+          WHERE metric_name = ? AND hour_timestamp >= ? AND hour_timestamp < ?
+            AND user_account_uuid = ?
+          UNION ALL
+          SELECT
+            timestamp - (timestamp % ?) as timestamp,
+            metric_value as value
+          FROM raw_metrics
+          WHERE metric_name = ? AND timestamp >= ? AND timestamp < ?
+            AND user_account_uuid = ?
+        )
+        GROUP BY timestamp
+        ORDER BY timestamp ASC
+      `);
+
+      return query.all(
+        intervalMs, metricName, fromTimestamp, aggregatedEnd, userId,
+        intervalMs, metricName, rawStart, toTimestamp, userId,
+      );
+    }
+
     const query = this.db.prepare<
-      [number, number, string, number, number, number, number, string, number, number],
+      [number, string, number, number, number, string, number, number],
       TimeSeriesRow
     >(`
       SELECT timestamp, SUM(value) as value FROM (
         SELECT
-          (hour_timestamp / ?) * ? as timestamp,
+          hour_timestamp - (hour_timestamp % ?) as timestamp,
           sum_value as value
         FROM hourly_aggregates
         WHERE metric_name = ? AND hour_timestamp >= ? AND hour_timestamp < ?
         UNION ALL
         SELECT
-          (timestamp / ?) * ? as timestamp,
+          timestamp - (timestamp % ?) as timestamp,
           metric_value as value
         FROM raw_metrics
         WHERE metric_name = ? AND timestamp >= ? AND timestamp < ?
@@ -491,8 +529,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     return query.all(
-      intervalMs, intervalMs, metricName, fromTimestamp, aggregatedEnd,
-      intervalMs, intervalMs, metricName, rawStart, toTimestamp,
+      intervalMs, metricName, fromTimestamp, aggregatedEnd,
+      intervalMs, metricName, rawStart, toTimestamp,
     );
   }
 
@@ -774,26 +812,26 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
 
     // sessionId 필터가 있으면 raw_metrics만 사용
+    // SQLite에서 정수 나눗셈을 보장하기 위해 (ts - ts % interval) 패턴 사용
     if (filters?.sessionId) {
       const query = this.db.prepare<(string | number)[], DetailedTokenRow>(`
         SELECT
-          (timestamp / ?) * ? as timestamp,
+          timestamp - (timestamp % ?) as timestamp,
           SUM(CASE WHEN json_extract(attributes, '$.type') = 'input' THEN metric_value ELSE 0 END) as input,
           SUM(CASE WHEN json_extract(attributes, '$.type') = 'output' THEN metric_value ELSE 0 END) as output,
           SUM(CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN metric_value ELSE 0 END) as cache_read,
           SUM(CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END) as cache_creation,
           SUM(metric_value) as total,
-          json_extract(attributes, '$.model') as model
+          NULL as model
         FROM raw_metrics
         WHERE timestamp >= ? AND timestamp < ?
           AND metric_name = 'claude_code.token.usage'
           ${rawWhere}
-        GROUP BY timestamp / ?, json_extract(attributes, '$.model')
+        GROUP BY timestamp - (timestamp % ?)
         ORDER BY timestamp ASC
       `);
 
       return query.all(
-        intervalMs,
         intervalMs,
         fromTimestamp,
         toTimestamp,
@@ -803,15 +841,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
 
     // hourly_aggregates + raw_metrics 조회
+    // SQLite에서 정수 나눗셈을 보장하기 위해 (ts - ts % interval) 패턴 사용
     const query = this.db.prepare<(string | number)[], DetailedTokenRow>(`
       SELECT
-        (ts / ?) * ? as timestamp,
+        ts - (ts % ?) as timestamp,
         SUM(input) as input,
         SUM(output) as output,
         SUM(cache_read) as cache_read,
         SUM(cache_creation) as cache_creation,
         SUM(input) + SUM(output) + SUM(cache_read) + SUM(cache_creation) as total,
-        model
+        NULL as model
       FROM (
         -- hourly_aggregates (집계된 과거 데이터)
         SELECT
@@ -819,8 +858,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           CASE WHEN json_extract(attributes, '$.type') = 'input' THEN sum_value ELSE 0 END as input,
           CASE WHEN json_extract(attributes, '$.type') = 'output' THEN sum_value ELSE 0 END as output,
           CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN sum_value ELSE 0 END as cache_read,
-          CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN sum_value ELSE 0 END as cache_creation,
-          json_extract(attributes, '$.model') as model
+          CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN sum_value ELSE 0 END as cache_creation
         FROM hourly_aggregates
         WHERE metric_name = 'claude_code.token.usage'
           AND hour_timestamp >= ? AND hour_timestamp < ?
@@ -832,19 +870,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           CASE WHEN json_extract(attributes, '$.type') = 'input' THEN metric_value ELSE 0 END as input,
           CASE WHEN json_extract(attributes, '$.type') = 'output' THEN metric_value ELSE 0 END as output,
           CASE WHEN json_extract(attributes, '$.type') = 'cacheRead' THEN metric_value ELSE 0 END as cache_read,
-          CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END as cache_creation,
-          json_extract(attributes, '$.model') as model
+          CASE WHEN json_extract(attributes, '$.type') = 'cacheCreation' THEN metric_value ELSE 0 END as cache_creation
         FROM raw_metrics
         WHERE metric_name = 'claude_code.token.usage'
           AND timestamp >= ? AND timestamp < ?
           ${rawWhere}
       )
-      GROUP BY ts / ?, model
+      GROUP BY ts - (ts % ?)
       ORDER BY timestamp ASC
     `);
 
     return query.all(
-      intervalMs,
       intervalMs,
       fromTimestamp,
       aggregatedEnd,
@@ -1184,5 +1220,55 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       users,
       total: countResult?.count ?? 0,
     };
+  }
+
+  getUsersTimeSeries(
+    metricName: string,
+    fromTimestamp: number,
+    toTimestamp: number,
+    intervalMs: number,
+  ): readonly UserTimeSeriesRow[] {
+    const HOUR_MS = 3600000;
+    const currentHourStart = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+
+    const aggregatedEnd = Math.min(toTimestamp, currentHourStart);
+    const rawStart = Math.max(fromTimestamp, currentHourStart);
+
+    // SQLite에서 정수 나눗셈을 보장하기 위해 (ts - ts % interval) 패턴 사용
+    const query = this.db.prepare<
+      [number, string, number, number, number, string, number, number],
+      UserTimeSeriesRow
+    >(`
+      SELECT
+        user_account_uuid,
+        timestamp,
+        SUM(value) as value
+      FROM (
+        SELECT
+          user_account_uuid,
+          hour_timestamp - (hour_timestamp % ?) as timestamp,
+          sum_value as value
+        FROM hourly_aggregates
+        WHERE metric_name = ?
+          AND hour_timestamp >= ? AND hour_timestamp < ?
+          AND user_account_uuid IS NOT NULL
+        UNION ALL
+        SELECT
+          user_account_uuid,
+          timestamp - (timestamp % ?) as timestamp,
+          metric_value as value
+        FROM raw_metrics
+        WHERE metric_name = ?
+          AND timestamp >= ? AND timestamp < ?
+          AND user_account_uuid IS NOT NULL
+      )
+      GROUP BY user_account_uuid, timestamp
+      ORDER BY user_account_uuid, timestamp ASC
+    `);
+
+    return query.all(
+      intervalMs, metricName, fromTimestamp, aggregatedEnd,
+      intervalMs, metricName, rawStart, toTimestamp,
+    );
   }
 }
