@@ -11,6 +11,8 @@ import type {
   UserDailyStatsResponse,
   UserSessionsResponse,
   StatsGroupBy,
+  UserCostTimeSeriesResponse,
+  UserTokenTimeSeriesResponse,
 } from '@claude-code-monitor/shared';
 
 const API_BASE_URL =
@@ -68,13 +70,13 @@ export async function fetchSummary(
 }
 
 export async function fetchCostTimeSeries(
-  params?: TimeRangeParams,
+  params?: TimeRangeParams & { userId?: string },
 ): Promise<CostTimeSeriesResponse> {
   return fetchApi<CostTimeSeriesResponse>('/api/metrics/cost', params as QueryParams);
 }
 
 export async function fetchTokenTimeSeries(
-  params?: TimeRangeParams,
+  params?: TimeRangeParams & { userId?: string },
 ): Promise<TokenTimeSeriesResponse> {
   return fetchApi<TokenTimeSeriesResponse>('/api/metrics/tokens', params as QueryParams);
 }
@@ -145,6 +147,24 @@ export async function fetchUserSessions(
 ): Promise<UserSessionsResponse> {
   return fetchApi<UserSessionsResponse>(
     `/api/users/${userId}/sessions`,
+    params as QueryParams,
+  );
+}
+
+export async function fetchUsersCostTimeSeries(
+  params?: TimeRangeParams,
+): Promise<UserCostTimeSeriesResponse> {
+  return fetchApi<UserCostTimeSeriesResponse>(
+    '/api/metrics/cost/by-user',
+    params as QueryParams,
+  );
+}
+
+export async function fetchUsersTokenTimeSeries(
+  params?: TimeRangeParams,
+): Promise<UserTokenTimeSeriesResponse> {
+  return fetchApi<UserTokenTimeSeriesResponse>(
+    '/api/metrics/tokens/by-user',
     params as QueryParams,
   );
 }
