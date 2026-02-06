@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, Min, IsIn, IsString } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsIn, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class UsersQueryDto {
@@ -24,6 +24,7 @@ export class UsersQueryDto {
   @Transform(({ value }) => (value ? parseInt(value, 10) : 20))
   @IsInt()
   @Min(1)
+  @Max(100)
   pageSize?: number;
 
   @IsOptional()

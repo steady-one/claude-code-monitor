@@ -1,5 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { MetricsService } from './metrics.service';
+import { AuthGuard } from '../otlp/guards/auth.guard';
 import {
   TimeRangeDto,
   PaginatedTimeRangeDto,
@@ -18,6 +19,7 @@ import type {
 } from '@claude-code-monitor/shared';
 
 @Controller('api/metrics')
+@UseGuards(AuthGuard)
 export class MetricsController {
   constructor(private readonly metricsService: MetricsService) {}
 

@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { json } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -8,6 +9,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.enableShutdownHooks();
+  app.use(json({ limit: '1mb' }));
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { AuthGuard } from '../otlp/guards/auth.guard';
 import { UsersQueryDto, UserDetailQueryDto } from './dto/users-query.dto';
 import { UserSessionsQueryDto } from './dto/user-sessions-query.dto';
 import { DailyStatsQueryDto } from './dto/daily-stats-query.dto';
@@ -11,6 +12,7 @@ import type {
 } from '@claude-code-monitor/shared';
 
 @Controller('api/users')
+@UseGuards(AuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 

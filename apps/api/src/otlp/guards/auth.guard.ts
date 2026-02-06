@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { timingSafeEqual } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import type { Request } from 'express';
 
@@ -57,7 +58,12 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Server AUTH_TOKEN not configured');
     }
 
-    if (token !== expectedToken) {
+    const tokenBuffer = Buffer.from(token);
+    const expectedBuffer = Buffer.from(expectedToken);
+    if (
+      tokenBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(tokenBuffer, expectedBuffer)
+    ) {
       logAuthFailure('Invalid token');
       throw new UnauthorizedException('Invalid token');
     }

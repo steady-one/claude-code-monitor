@@ -18,6 +18,8 @@ import type {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4317';
 
+const API_AUTH_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? '';
+
 type QueryParams = Record<string, string | number | undefined>;
 
 async function fetchApi<T>(
@@ -34,11 +36,14 @@ async function fetchApi<T>(
     });
   }
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (API_AUTH_TOKEN) {
+    headers['Authorization'] = `Bearer ${API_AUTH_TOKEN}`;
+  }
+
+  const response = await fetch(url.toString(), { headers });
 
   if (!response.ok) {
     throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -63,8 +68,12 @@ interface LogsParams extends PaginatedTimeRangeParams {
   endpoint?: string;
 }
 
+interface SummaryParams extends TimeRangeParams {
+  comparePreviousPeriod?: boolean;
+}
+
 export async function fetchSummary(
-  params?: TimeRangeParams,
+  params?: SummaryParams,
 ): Promise<MetricsSummary> {
   return fetchApi<MetricsSummary>('/api/metrics/summary', params as QueryParams);
 }
