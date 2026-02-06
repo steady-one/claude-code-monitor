@@ -10,30 +10,25 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { LineChart as LineChartIcon } from 'lucide-react';
 import type { UserTokenTimeSeriesResponse } from '@claude-code-monitor/shared';
 import { formatTimestamp, formatCompactNumber, truncateUuid } from '@/lib/format';
+import { USER_COLORS } from '@/lib/chart-colors';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface MultiUserTokenChartProps {
   readonly data: UserTokenTimeSeriesResponse;
 }
 
-const USER_COLORS = [
-  'oklch(0.65 0.2 250)',
-  'oklch(0.6 0.18 165)',
-  'oklch(0.75 0.15 85)',
-  'oklch(0.6 0.2 300)',
-  'oklch(0.55 0.15 45)',
-  'oklch(0.7 0.18 200)',
-  'oklch(0.65 0.15 130)',
-  'oklch(0.58 0.2 350)',
-];
-
 export function MultiUserTokenChart({ data }: MultiUserTokenChartProps) {
   if (data.data.length === 0) {
     return (
-      <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-        토큰 데이터가 없습니다
-      </div>
+      <EmptyState
+        icon={LineChartIcon}
+        title="토큰 데이터 없음"
+        description="선택한 기간에 토큰 사용 데이터가 없습니다"
+        className="h-[300px]"
+      />
     );
   }
 

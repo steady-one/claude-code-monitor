@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useMemo } from 'react';
+import { use, useState, useMemo, useCallback } from 'react';
 import {
   useUserDetail,
   useUserDailyStats,
@@ -13,6 +13,7 @@ import {
   TimeRangePresetButtons,
   getTimeRangeFromPreset,
   type TimeRangePreset,
+  type CustomRange,
 } from '@/components/ui/time-range-preset';
 import { UserDetailHeader } from '@/components/users/user-detail-header';
 import { UserStatsCards } from '@/components/users/user-stats-cards';
@@ -29,10 +30,11 @@ interface PageProps {
 export default function UserDetailPage({ params }: PageProps) {
   const { userId } = use(params);
   const [timeRange, setTimeRange] = useState<TimeRangePreset>('today');
+  const [customRange, setCustomRange] = useState<CustomRange | null>(null);
 
   const { from, to } = useMemo(
-    () => getTimeRangeFromPreset(timeRange),
-    [timeRange],
+    () => getTimeRangeFromPreset(timeRange, customRange),
+    [timeRange, customRange],
   );
 
   const interval = timeRange === 'today' ? 'hour' : 'day';
@@ -41,6 +43,17 @@ export default function UserDetailPage({ params }: PageProps) {
     () => Math.ceil((to - from) / (1000 * 60 * 60 * 24)),
     [from, to],
   );
+
+  const handleTimeRangeChange = useCallback((value: TimeRangePreset) => {
+    if (value !== 'custom') {
+      setCustomRange(null);
+    }
+    setTimeRange(value);
+  }, []);
+
+  const handleCustomRangeChange = useCallback((range: CustomRange) => {
+    setCustomRange(range);
+  }, []);
 
   const { data: user, isLoading, isError, error } = useUserDetail(userId, {
     from,
@@ -109,7 +122,12 @@ export default function UserDetailPage({ params }: PageProps) {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <UserDetailHeader user={user} />
-        <TimeRangePresetButtons value={timeRange} onChange={setTimeRange} />
+        <TimeRangePresetButtons
+          value={timeRange}
+          onChange={handleTimeRangeChange}
+          customRange={customRange}
+          onCustomRangeChange={handleCustomRangeChange}
+        />
       </div>
 
       <UserStatsCards

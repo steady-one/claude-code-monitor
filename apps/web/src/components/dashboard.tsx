@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { SummaryCards } from './summary-cards';
 import { MultiUserCostChart } from './charts/multi-user-cost-chart';
 import { MultiUserTokenChart } from './charts/multi-user-token-chart';
@@ -13,6 +15,7 @@ import {
   TimeRangePresetButtons,
   getTimeRangeFromPreset,
   type TimeRangePreset,
+  type CustomRange,
 } from '@/components/ui/time-range-preset';
 import {
   fetchSummary,
@@ -22,14 +25,55 @@ import {
   fetchUsers,
 } from '@/lib/api';
 
+function formatLastUpdated(updatedAt: number): string {
+  const diffMs = Date.now() - updatedAt;
+  const diffSeconds = Math.floor(diffMs / 1000);
+
+  if (diffSeconds < 10) {
+    return '방금 전';
+  }
+  if (diffSeconds < 60) {
+    return `${diffSeconds}초 전`;
+  }
+
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) {
+    return `${diffMinutes}분 전`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  return `${diffHours}시간 전`;
+}
+
 export function Dashboard() {
+  const queryClient = useQueryClient();
   const [timeRange, setTimeRange] = useState<TimeRangePreset>('today');
-  const { from, to } = useMemo(() => getTimeRangeFromPreset(timeRange), [timeRange]);
+  const [customRange, setCustomRange] = useState<CustomRange | null>(null);
+
+  const { from, to } = useMemo(
+    () => getTimeRangeFromPreset(timeRange, customRange),
+    [timeRange, customRange],
+  );
   const interval = timeRange === 'today' ? 'hour' : 'day';
 
+  const handleRefresh = useCallback(() => {
+    queryClient.invalidateQueries();
+  }, [queryClient]);
+
+  const handleTimeRangeChange = useCallback((value: TimeRangePreset) => {
+    if (value !== 'custom') {
+      setCustomRange(null);
+    }
+    setTimeRange(value);
+  }, []);
+
+  const handleCustomRangeChange = useCallback((range: CustomRange) => {
+    setCustomRange(range);
+  }, []);
+
   const summaryQuery = useQuery({
-    queryKey: ['metrics', 'summary', { from, to }],
-    queryFn: () => fetchSummary({ from, to, interval }),
+    queryKey: ['metrics', 'summary', { from, to, comparePreviousPeriod: true }],
+    queryFn: () => fetchSummary({ from, to, interval, comparePreviousPeriod: true }),
   });
 
   const usersCostQuery = useQuery({
@@ -98,9 +142,32 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold">대시보드</h1>
-        <TimeRangePresetButtons value={timeRange} onChange={setTimeRange} />
+        <div className="flex items-center gap-3">
+          {summaryQuery.dataUpdatedAt > 0 && (
+            <span className="text-xs text-muted-foreground">
+              마지막 갱신: {formatLastUpdated(summaryQuery.dataUpdatedAt)}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleRefresh}
+            className="h-8 w-8"
+            aria-label="새로고침"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${summaryQuery.isFetching ? 'animate-spin' : ''}`}
+            />
+          </Button>
+          <TimeRangePresetButtons
+            value={timeRange}
+            onChange={handleTimeRangeChange}
+            customRange={customRange}
+            onCustomRangeChange={handleCustomRangeChange}
+          />
+        </div>
       </div>
 
       {summaryQuery.data && <SummaryCards summary={summaryQuery.data} />}
